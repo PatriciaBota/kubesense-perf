@@ -1,0 +1,4 @@
+__pycache__
+.cache
+*.sqlite
+results_emotiphai/venv/
