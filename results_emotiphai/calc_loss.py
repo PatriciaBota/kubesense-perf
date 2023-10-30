@@ -101,12 +101,13 @@ class DataAnalysis:
                 )
                 frames: List[Frame] = session.execute(statement).all()
                 sequences, timestamps = zip(*frames)
+                total_number_of_packets = len(sequences)
                 timestamps = np.array(timestamps)
-                #plt.figure()
-                #plt.title(device.port)
-                #plt.plot(timestamps - timestamps[0], ".")
-                ##plt.plot(sequences, ".")
-                #plt.show()
+                plt.figure()
+                plt.title(device.port)
+                plt.plot(timestamps - timestamps[0], ".")
+                #plt.plot(sequences, ".")
+                plt.show()
 
                 copy_frames = frames[1:]
 
@@ -135,6 +136,10 @@ class DataAnalysis:
                                     print(f"ERROR: got full loop and added: {n_full_loops * max_seq_number}")
                                 missed = max_seq_number * n_full_loops  # We lost an entire set of frames
                                 n_missed_packets += missed
+                                total_number_of_packets += missed
+                                breaks += 1
+                                total_break_time += missed / sampling_rate
+                                avg_break_time += [ missed / sampling_rate]
 
                         elif diff > 1:  # We missed some packets but it did not go back to sequence 0
                             if log:
@@ -144,6 +149,7 @@ class DataAnalysis:
                             breaks += 1
                             total_break_time += diff / sampling_rate
                             avg_break_time += [ diff / sampling_rate]
+                            total_number_of_packets += missed
                         
                         elif diff < 0:  # We came back to sequence 0 (i.e: (15 - 12) + (7 - 0))
                             if log:
@@ -153,8 +159,8 @@ class DataAnalysis:
                             breaks += 1
                             total_break_time += missed / sampling_rate
                             avg_break_time += [ missed / sampling_rate]
+                            total_number_of_packets += n_missed_packets 
 
-                total_number_of_packets = len(sequences)
                 collection_time = self.calculate_data_collection_time(sampling_rate, len(sequences))
                 hours, minutes, seconds = self.seconds_to_hours_minutes_seconds(collection_time)
                 if len(avg_break_time) == 0:
