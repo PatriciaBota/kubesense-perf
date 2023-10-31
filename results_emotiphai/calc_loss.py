@@ -83,6 +83,7 @@ class DataAnalysis:
             print(f"Session id: {session_id}")
             devices: List[Device] = session.query(Device).filter(Device.session_id == session_id).all()
             sampling_rate: int = session.query(ModelSession).filter(ModelSession.id == session_id).one().sampling_rate
+            print(f"sampling_rate {sampling_rate}")
 
             for device in devices:
 
@@ -102,20 +103,21 @@ class DataAnalysis:
                 frames: List[Frame] = session.execute(statement).all()
                 sequences, timestamps = zip(*frames)
                 total_number_of_packets = len(sequences)
-                timestamps = np.array(timestamps)
-                plt.figure()
-                plt.title(device.port)
-                plt.plot(timestamps - timestamps[0], ".")
-                #plt.plot(sequences, ".")
-                plt.show()
+                timestamps = np.array(timestamps) * 0.000001 # to seconds
+                #plt.figure()
+                #plt.title(device.port)
+                #plt.plot(timestamps - timestamps[0], ".")
+                ##plt.plot(sequences, ".")
+                #plt.show()
 
                 copy_frames = frames[1:]
 
                 # Applies numpy diff to sequence numbers to check if there are any missing packages
                 differences: List[int] = np.diff(sequences).tolist()
+                sampling_period: List[int] = np.diff(timestamps).tolist()
 
                 # Goes over all differences and corresponding timestamps and counts data loss
-                print(f"unique sequences: {len(np.unique(sequences))}")
+                print(f"unique sequences: {len(np.unique(sequences))}, total size", {len(sequences)})
                 for i, diff in enumerate(differences):
 
                     # Counts number of frames based on the elapsed time and counts number of possible full loops
@@ -161,16 +163,17 @@ class DataAnalysis:
                             avg_break_time += [ missed / sampling_rate]
                             total_number_of_packets += n_missed_packets 
 
-                collection_time = self.calculate_data_collection_time(sampling_rate, len(sequences))
+                collection_time = self.calculate_data_collection_time(sampling_rate, total_number_of_packets)
                 hours, minutes, seconds = self.seconds_to_hours_minutes_seconds(collection_time)
+                print(f"Detected time {self.seconds_to_hours_minutes_seconds(timestamps[-1] - timestamps[0])}")
                 if len(avg_break_time) == 0:
                     avg_break_time = [0]
                 if n_missed_packets == 0:
-                    assert np.unique(differences).shape[0] == 2
+                    assert np.unique(differences).shape[0] == 1 or np.unique(differences).shape[0] == 2
                 results_table.append([session_id, device.port, round(n_missed_packets / total_number_of_packets * 100, 2),  # rounds to 2 decimal places
                 round(n_duplicates / total_number_of_packets * 100, 2), f"{hours}:{minutes}:{seconds}", sampling_rate, 
-                breaks, round(total_break_time, 2), f"{round(np.mean(avg_break_time), 2)} +- {round(np.std(avg_break_time), 2)}"])
-                print(f"SESSION: {session_id}; [Device = {device.port}] -> Missed packets = {n_missed_packets}, {(n_missed_packets / total_number_of_packets * 100):.2f}% | Duplicates = {(n_duplicates / total_number_of_packets * 100):.2f}% Duration {int(hours)} hours, {int(minutes)} minutes, and {int(seconds)} seconds | Breaks = {breaks} | Break time = {total_break_time:.2f} seconds | Avg break time = {np.mean(avg_break_time):.2f} +- {np.std(avg_break_time):.2f} seconds")
+                breaks, round(total_break_time, 2), f"{round(np.mean(avg_break_time), 2)} +- {round(np.std(avg_break_time), 2)}", round(np.mean(sampling_period),2), round(np.std(sampling_period),2)])
+                print(f"SESSION: {session_id}; [Device = {device.port}] -> Missed packets = {n_missed_packets}, {(n_missed_packets / total_number_of_packets * 100):.2f}% | Duplicates = {(n_duplicates / total_number_of_packets * 100):.2f}% Duration {int(hours)} hours, {int(minutes)} minutes, and {int(seconds)} seconds | Breaks = {breaks} | Break time = {total_break_time:.2f} seconds | Avg break time = {np.mean(avg_break_time):.2f} +- {np.std(avg_break_time):.2f} seconds | Avg SP = {np.mean(sampling_period):.2f} +- {np.std(sampling_period):.2f}")
 
             print("%%%%% SESSION END %%%%% \n")
         session.close()
@@ -184,7 +187,7 @@ data_analysis = DataAnalysis(db_url=db_path)
 results_table = data_analysis.calc_data_loss(log=False) 
 
 df = pd.DataFrame.from_dict(results_table) 
-header = ['session_id', 'device', 'data_loss (%)', 'duplicates (%)', 'duration (h:m:s)', 'sampling_rate (Hz)', 'breaks', 'total break_time (s)', 'avg break time (s)']
+header = ['session_id', 'device', 'data_loss (%)', 'duplicates (%)', 'duration (h:m:s)', 'sampling_rate (Hz)', 'breaks', 'total break_time (s)', 'avg break time (s)', 'avg sampling period (s)', 'std sampling period (s)']
 averages = df.mean(numeric_only=True)  # get the average of each numeric column
 std_devs = df.std(numeric_only=True)  # get the standard deviation of each numeric column
 
