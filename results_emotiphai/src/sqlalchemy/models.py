@@ -31,6 +31,8 @@ class Session(Base):
   sampling_rate = Column(Integer)
   type = Column(String)
   movie = Column(String)
+  start_time = Column(Float)
+  end_time = Column(Float)
 
 class AcquisitionTags(Base):
   __tablename__ = "AcquisitionTags"
@@ -43,7 +45,7 @@ class Device(Base):
   __tablename__ = "Device"
   id = Column(Integer, primary_key=True)
   session_id = Column(Integer, ForeignKey("Session.id"))
-  port = Column(Integer)
+  port = Column(Integer, index=True)
   frames = relationship("Frame", backref=backref("Frame"))
   annotations = relationship("Annotation", backref=backref("AnnotationDevice"))
 

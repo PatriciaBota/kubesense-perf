@@ -100,36 +100,44 @@ class DataAnalysis:
                 avg_break_time: List = []
                 buffer_full_event = 0
                 buffer_full_ts = []
+                time_resets_count: int = 0
+                time_resets_ts = []
 
                 # Gets all device frames and splits the output into sequence numbers and timestamps
                 statement = (
                     select(Frame.seq, Frame.timestamp)
                     .join(Device)
                     .where(Frame.device_id == device.id, Device.session_id == session_id)
-                    .order_by(Frame.timestamp)
+                    #.order_by(Frame.timestamp)
                 )
                 frames: List[Frame] = session.execute(statement).all()
                 sequences, timestamps = zip(*frames)
                 total_number_of_packets = len(sequences)
-                timestamps = np.array(timestamps) * 0.000001 # to seconds
-                #plt.figure()
-                #plt.title(device.port)
-                #plt.plot(timestamps - timestamps[0], ".")
-                ##plt.plot(sequences, ".")
-                #plt.show()
+                timestamps = np.array(timestamps) * 10**-6 # to seconds
 
                 copy_frames = frames[1:]
 
                 # Applies numpy diff to sequence numbers to check if there are any missing packages
                 differences: List[int] = np.diff(sequences).tolist()
                 sampling_period: List[int] = np.diff(timestamps).tolist()
-
+                idx_neg = np.where(np.array(sampling_period) < 0)[0]
+                #plt.figure()
+                #plt.title(device.port)
+                #for index in idx_neg:
+                #    plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
+                ##plt.plot(timestamps, ".")
+                #plt.plot(sequences, ".")
+                #plt.ylabel("timestamp (s)")
+                #plt.show()
                 # Goes over all differences and corresponding timestamps and counts data loss
                 print(f"unique sequences: {len(np.unique(sequences))}, total size", {len(sequences)})
                 for i, diff in enumerate(differences):
 
                     # Counts number of frames based on the elapsed time and counts number of possible full loops
-                    n_frames_passed = timestamps[i + 1] - timestamps[i] // sampling_rate
+                    if sampling_period[i] > 0:
+                        n_frames_passed = (timestamps[i + 1] - timestamps[i]) // sampling_rate
+                    else:
+                        n_frames_passed = 0
                     n_full_loops = 0 if n_frames_passed == 0 else max_seq_number // n_frames_passed
 
                     if log:
@@ -172,12 +180,18 @@ class DataAnalysis:
                                 loss_points += 1
                                 total_break_time += missed / sampling_rate
                                 avg_break_time += [ missed / sampling_rate]
-                                total_number_of_packets += n_missed_packets 
+                                total_number_of_packets += missed 
                     else:
                         if sampling_period[i] > 2*(1/sampling_rate): # there was loss without change in paket number
-                            if diff[i] == 1:
+                            if diff == 1:
                                 buffer_full_event += 1 # max # min, não recolhe dados por ter buffer cheio
                                 buffer_full_ts += [sampling_period[i]] # max # min, não recolhe dados por ter buffer cheio
+                sampling_period = np.array(sampling_period)
+                time_resets = np.where(sampling_period < 0)[0] +1
+                time_resets_count = len(time_resets)
+                time_resets_ts = [sampling_period[i] for i in time_resets]
+                
+                sampling_period = [num for num in sampling_period if num >= 0]
 
                 collection_time = self.calculate_data_collection_time(sampling_rate, total_number_of_packets)
                 hours, minutes, seconds = self.seconds_to_hours_minutes_seconds(collection_time)
@@ -188,15 +202,15 @@ class DataAnalysis:
                     assert np.unique(differences).shape[0] == 1 or np.unique(differences).shape[0] == 2
                 # Perform calculations
                 missed_packet_percent = round(n_missed_packets / total_number_of_packets * 100, 2)
-                duplicate_packet_percent = round(n_duplicates / total_number_of_packets * 100, 2)
+                duplicate_packet = n_duplicates 
 
                 # Format times as strings
                 time_string = f"{hours}:{minutes}:{seconds}"
                 exp_time_string = f"{exp_hours}:{exp_minutes}:{exp_seconds}"
 
                 # Calculate NumPy statistics
-                mean_break_time = round(np.mean(avg_break_time), 2)
-                std_break_time = round(np.std(avg_break_time), 2)
+                mean_break_time = round(np.mean(avg_break_time), 5)
+                std_break_time = round(np.std(avg_break_time), 5)
                 mean_sampling_period = round(np.mean(sampling_period), 5)
                 std_sampling_period = round(np.std(sampling_period), 5)
                 max_sampling_period = round(np.max(sampling_period), 5)
@@ -206,19 +220,24 @@ class DataAnalysis:
                 if not isinstance(buffer_full_ts, (list, np.ndarray)):
                     raise TypeError("buffer_full_ts must be a list or numpy array")
 
-                buffer_full_ts_mean = round(np.mean(buffer_full_ts), 2)
-                buffer_full_ts_std = round(np.std(buffer_full_ts), 2)
+                buffer_full_ts_mean = round(np.mean(buffer_full_ts), 5)
+                buffer_full_ts_std = round(np.std(buffer_full_ts), 5)
                 max_buffer_full_ts = round(np.max(buffer_full_ts), 5)
                 min_buffer_full_ts = round(np.min(buffer_full_ts), 5)
+
+                max_time_resets_ts = round(np.max(time_resets_ts), 5)
+                min_time_resets_ts = round(np.min(time_resets_ts), 5)
+                mean_time_resets_ts = round(np.mean(time_resets_ts), 5)
+                std_time_resets_ts = round(np.std(time_resets_ts), 5)
 
                 # Append data to results_table
                 results_table.append([
                     session_id, device.port, missed_packet_percent, n_missed_packets, total_number_of_packets,
-                    duplicate_packet_percent, time_string, exp_time_string, sampling_rate,
+                    duplicate_packet, time_string, exp_time_string, sampling_rate,
                     breaks, loss_points, total_break_time, f"{mean_break_time} +- {std_break_time}",
                     mean_sampling_period, std_sampling_period, max_sampling_period, min_sampling_period,
                     buffer_full_event, f"{buffer_full_ts_mean} +- {buffer_full_ts_std}",
-                    max_buffer_full_ts, min_buffer_full_ts
+                    max_buffer_full_ts, min_buffer_full_ts, time_resets_count, max_time_resets_ts, min_time_resets_ts, mean_time_resets_ts, std_time_resets_ts
                 ])
                 print(f"SESSION: {session_id}; [Device = {device.port}] -> Missed packets = {n_missed_packets}")
 
@@ -234,9 +253,10 @@ data_analysis = DataAnalysis(db_url=db_path)
 results_table = data_analysis.calc_data_loss(log=False) 
 
 df = pd.DataFrame.from_dict(results_table) 
-header = ['session_id', 'device', 'data loss (%)', 'lost frames (#)', 'total frames (#)', 'duplicates (%)', 'obt. duration (h:m:s)', \
+header = ['session_id', 'device', 'data loss (%)', 'lost frames (#)', 'total frames (#)', 'duplicates (#)', 'obt. duration (h:m:s)', \
           'exp. duration (h:m:s)', 'exp sampling_rate (Hz)', 'breaks (#)', 'loss events (#)', 'total loss time (s)', 'avg loss time (s)',\
-            'avg sampling period (s)', 'std sampling period (s)', 'max sampling period (s)', 'min sampling period (s)', "buffer full (#)", "buffer full avg (ts)", "buffer full max (ts)", "buffer full min (ts)"]
+            'avg sampling period (s)', 'std sampling period (s)', 'max sampling period (s)', 'min sampling period (s)', "buffer full (#)", \
+            "buffer full avg (ts)", "buffer full max (ts)", "buffer full min (ts)", "time resets (#)", "time resets max (ts)", "time resets min (ts)", "time resets avg (ts)", "time resets std (ts)"]
 averages = df.mean(numeric_only=True)  # get the average of each numeric column
 std_devs = df.std(numeric_only=True)  # get the standard deviation of each numeric column
 
@@ -244,3 +264,4 @@ summary_row = ['---' if col not in averages.index else f"{averages[col]:.2f} ± 
 df.loc['Average'] = summary_row
 df.to_csv ('results/db_results.csv', index = True, header=header)
 
+pdb.set_trace()
