@@ -138,7 +138,7 @@ class DataAnalysis:
                     if diff != 1 and diff != -max_seq_number:  # If is not one, then we jumped more than one frame and so, we have an error
 
                         if diff == 0:  # Has a duplicate if the timestamp is the same or is a full round loss
-                            if timestamps[i] == timestamps[i + 1]: # CORRECT TODO
+                            if len(np.unique(timestamps[i])) > 1:
                                 n_duplicates += 1
 
                             elif n_full_loops > 0:
