@@ -186,11 +186,40 @@ class DataAnalysis:
                     avg_break_time = [0]
                 if n_missed_packets == 0:
                     assert np.unique(differences).shape[0] == 1 or np.unique(differences).shape[0] == 2
-                results_table.append([session_id, device.port, round(n_missed_packets / total_number_of_packets * 100, 2), n_missed_packets, total_number_of_packets, \ 
-                round(n_duplicates / total_number_of_packets * 100, 2), f"{hours}:{minutes}:{seconds}", f"{exp_hours}:{exp_minutes}:{exp_seconds}", sampling_rate, \
-                breaks, loss_points, round(total_break_time, 2), f"{round(np.mean(avg_break_time), 2)} +- {round(np.std(avg_break_time), 2)}", round(np.mean(sampling_period),5), \
-                round(np.std(sampling_period),5), round(np.max(sampling_period),5), round(np.min(sampling_period),5), buffer_full_event, f"{round(np.mean(buffer_full_ts), 2)} +- {round(np.std(buffer_full_ts), 2)}", round(np.max(buffer_full_ts), 5), round(np.min(buffer_full_ts), 5)])
-                
+                # Perform calculations
+                missed_packet_percent = round(n_missed_packets / total_number_of_packets * 100, 2)
+                duplicate_packet_percent = round(n_duplicates / total_number_of_packets * 100, 2)
+
+                # Format times as strings
+                time_string = f"{hours}:{minutes}:{seconds}"
+                exp_time_string = f"{exp_hours}:{exp_minutes}:{exp_seconds}"
+
+                # Calculate NumPy statistics
+                mean_break_time = round(np.mean(avg_break_time), 2)
+                std_break_time = round(np.std(avg_break_time), 2)
+                mean_sampling_period = round(np.mean(sampling_period), 5)
+                std_sampling_period = round(np.std(sampling_period), 5)
+                max_sampling_period = round(np.max(sampling_period), 5)
+                min_sampling_period = round(np.min(sampling_period), 5)
+
+                # Ensure buffer_full_ts is an array-like structure to compute mean and std
+                if not isinstance(buffer_full_ts, (list, np.ndarray)):
+                    raise TypeError("buffer_full_ts must be a list or numpy array")
+
+                buffer_full_ts_mean = round(np.mean(buffer_full_ts), 2)
+                buffer_full_ts_std = round(np.std(buffer_full_ts), 2)
+                max_buffer_full_ts = round(np.max(buffer_full_ts), 5)
+                min_buffer_full_ts = round(np.min(buffer_full_ts), 5)
+
+                # Append data to results_table
+                results_table.append([
+                    session_id, device.port, missed_packet_percent, n_missed_packets, total_number_of_packets,
+                    duplicate_packet_percent, time_string, exp_time_string, sampling_rate,
+                    breaks, loss_points, total_break_time, f"{mean_break_time} +- {std_break_time}",
+                    mean_sampling_period, std_sampling_period, max_sampling_period, min_sampling_period,
+                    buffer_full_event, f"{buffer_full_ts_mean} +- {buffer_full_ts_std}",
+                    max_buffer_full_ts, min_buffer_full_ts
+                ])
                 print(f"SESSION: {session_id}; [Device = {device.port}] -> Missed packets = {n_missed_packets}")
 
             print("%%%%% SESSION END %%%%% \n")
