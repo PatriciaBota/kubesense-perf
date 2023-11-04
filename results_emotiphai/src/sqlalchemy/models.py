@@ -31,8 +31,8 @@ class Session(Base):
   sampling_rate = Column(Integer)
   type = Column(String)
   movie = Column(String)
-  start_time = Column(Float)
-  end_time = Column(Float)
+  #start_time = Column(Float)
+  #end_time = Column(Float)
 
 class AcquisitionTags(Base):
   __tablename__ = "AcquisitionTags"

@@ -86,9 +86,12 @@ class DataAnalysis:
             session_obj = session.query(ModelSession).filter(ModelSession.id == session_id).one()
 
             sampling_rate = session_obj.sampling_rate
-            start_time = session_obj.start_time
-            end_time = session_obj.end_time
-            exp_duration = end_time - start_time
+            try:
+                start_time = session_obj.start_time
+                end_time = session_obj.end_time
+                exp_duration = end_time - start_time
+            except Exception as e:
+                exp_duration = 0
             print(f"sampling_rate {sampling_rate}")
 
             for device in devices:
@@ -108,6 +111,7 @@ class DataAnalysis:
                 total_pack_seq: int = 0
                 seq_loss_ts: List = []
                 buffer_full_idx: List = []
+                seq_loss_idx: List = []
 
                 # Gets all device frames and splits the output into sequence numbers and timestamps
                 statement = (
@@ -177,6 +181,7 @@ class DataAnalysis:
                                     seq_loss_ts += [missed / sampling_rate]
                                 seq_loss += missed
                                 total_pack_seq += missed
+                                seq_loss_idx += [i+1]
 
                         elif diff > 1:  # We missed some packets but it did not go back to sequence 0
                             if log:
@@ -195,6 +200,7 @@ class DataAnalysis:
                             total_number_of_packets += missed
                             seq_loss += missed
                             total_pack_seq += missed
+                            seq_loss_idx += [i+1]
                         
                         elif diff < 0:  # We came back to sequence 0 (i.e: (15 - 12) + (7 - 0))
                             if sequences[i] == 0 and sequences[i-1] != max_seq_number:  # break
@@ -211,6 +217,7 @@ class DataAnalysis:
                                 seq_loss += missed
                                 total_pack_seq += missed
                                 seq_loss_ts += [missed / sampling_rate]
+                                seq_loss_idx += [i+1]
                     else:
                         if sampling_period[i] > 1.5*(1/sampling_rate) and n_full_loops == 0: # there was loss without change in paket number
                             if diff == 1:
@@ -281,6 +288,16 @@ class DataAnalysis:
                     max_time_resets_ts, min_time_resets_ts, mean_time_resets_ts, std_time_resets_ts = 0,0,0,0
 
                 seq_loss_time = round(np.sum(seq_loss_ts), 5)
+                if len(seq_loss_idx) > 0:
+                    plt.figure()
+                    plt.title(str(device.port) + " buffer full")
+                    for index in seq_loss_idx:
+                        plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
+                    #plt.plot(timestamps, ".")
+                    plt.plot(timestamps, ".")
+                    plt.ylabel("sequences")
+                    plt.show()
+                    plt.close()
 
                 # Append data to results_table
                 results_table.append([
@@ -324,3 +341,7 @@ pdb.set_trace()
 # 3. all the frames are being lost due to buffer full, why?
 # 4. Parece que envia o dobro dos dados, envia o ts no tempo errado, mas mantem seq number
 # 5. Buffer full is observed when timestamp goes back in time
+
+
+#TODO:
+# 1. Increase timeout between saving, num works
