@@ -94,14 +94,16 @@ class DataAnalysis:
 
                 n_duplicates: int = 0
                 n_missed_packets: int = 0
-                breaks: int = 0
+                seq_rest: int = 0
                 loss_points: int = 0
-                total_break_time: int = 0
+                total_loss_time: int = 0
                 avg_break_time: List = []
                 buffer_full_event = 0
                 buffer_full_ts = []
                 time_resets_count: int = 0
                 time_resets_ts = []
+                buffer_lost_frames: int = 0
+                seq_loss: int = 0
 
                 # Gets all device frames and splits the output into sequence numbers and timestamps
                 statement = (
@@ -121,24 +123,27 @@ class DataAnalysis:
                 differences: List[int] = np.diff(sequences).tolist()
                 sampling_period: List[int] = np.diff(timestamps).tolist()
                 idx_neg = np.where(np.array(sampling_period) < 0)[0]
-                #plt.figure()
-                #plt.title(device.port)
-                #for index in idx_neg:
-                #    plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
-                ##plt.plot(timestamps, ".")
-                #plt.plot(sequences, ".")
-                #plt.ylabel("timestamp (s)")
-                #plt.show()
+
+                if log:
+                    plt.figure()
+                    plt.title(device.port)
+                    for index in idx_neg:
+                        plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
+                    plt.plot(timestamps, ".")
+                    #plt.plot(sequences, ".")
+                    plt.ylabel("timestamp (s)")
+                    plt.show()
+                
                 # Goes over all differences and corresponding timestamps and counts data loss
                 print(f"unique sequences: {len(np.unique(sequences))}, total size", {len(sequences)})
                 for i, diff in enumerate(differences):
 
                     # Counts number of frames based on the elapsed time and counts number of possible full loops
                     if sampling_period[i] > 0:
-                        n_frames_passed = (timestamps[i + 1] - timestamps[i]) // sampling_rate
+                        n_frames_passed = round((timestamps[i + 1] - timestamps[i]) * sampling_rate)
                     else:
                         n_frames_passed = 0
-                    n_full_loops = 0 if n_frames_passed == 0 else max_seq_number // n_frames_passed
+                    n_full_loops = 0 if n_frames_passed == 1 else n_frames_passed // max_seq_number 
 
                     if log:
                         print(f"INFO: index: {i} | diff: {diff} | n_full_loops: {n_full_loops} | missed_packets: {n_missed_packets} | frame: {copy_frames[i]}")
@@ -152,12 +157,18 @@ class DataAnalysis:
                             elif n_full_loops > 0:
                                 if log:
                                     print(f"ERROR: got full loop and added: {n_full_loops * max_seq_number}")
-                                missed = max_seq_number * n_full_loops  # We lost an entire set of frames
+                                pdb.set_trace()
+                                missed = max_seq_number * n_full_loops + (max_seq_number - sequences[i - 1]) + (sequences[i] - 0)   # We lost an entire set of frames
                                 n_missed_packets += missed
                                 total_number_of_packets += missed
                                 loss_points += 1
-                                total_break_time += missed / sampling_rate
-                                avg_break_time += [ missed / sampling_rate]
+                                if sampling_period[i] > 0:
+                                    total_loss_time += timestamps[i+1] - timestamps[i] #missed / sampling_rate
+                                    avg_break_time += [timestamps[i+1] - timestamps[i]]
+                                else:
+                                    total_loss_time += missed / sampling_rate
+                                    avg_break_time += [missed / sampling_rate]
+                                seq_loss += missed
 
                         elif diff > 1:  # We missed some packets but it did not go back to sequence 0
                             if log:
@@ -165,27 +176,37 @@ class DataAnalysis:
                             missed = diff - 1
                             n_missed_packets += missed
                             loss_points += 1
-                            total_break_time += diff / sampling_rate
+                            total_loss_time += diff / sampling_rate
                             avg_break_time += [ diff / sampling_rate]
                             total_number_of_packets += missed
+                            seq_loss += missed
                         
                         elif diff < 0:  # We came back to sequence 0 (i.e: (15 - 12) + (7 - 0))
-                            if sequences[i] == 0 and sequences[-1] != 4095:  # break
-                                breaks += 1 # break with no data loss, reinicia seq number
+                            if sequences[i] == 0 and sequences[i-1] != max_seq_number:  # break
+                                seq_rest += 1 # break with no data loss, reinicia seq number
                             else:
                                 if log:
                                     print(f"ERROR: Missed packets in break: {(max_seq_number - sequences[i - 1]) + (sequences[i] - 0)}")
                                 missed = (max_seq_number - sequences[i - 1]) + (sequences[i] - 0)
                                 n_missed_packets += missed
                                 loss_points += 1
-                                total_break_time += missed / sampling_rate
+                                total_loss_time += missed / sampling_rate
                                 avg_break_time += [ missed / sampling_rate]
                                 total_number_of_packets += missed 
+                                seq_loss += missed
                     else:
-                        if sampling_period[i] > 2*(1/sampling_rate): # there was loss without change in paket number
+                        if sampling_period[i] > 1.5*(1/sampling_rate) and n_full_loops == 0: # there was loss without change in paket number
                             if diff == 1:
                                 buffer_full_event += 1 # max # min, não recolhe dados por ter buffer cheio
                                 buffer_full_ts += [sampling_period[i]] # max # min, não recolhe dados por ter buffer cheio
+                                missed = round((timestamps[i + 1] - timestamps[i]) * sampling_rate)
+                                n_missed_packets += missed
+                                loss_points += 1
+                                total_loss_time += missed / sampling_rate
+                                avg_break_time += [ missed / sampling_rate]
+                                total_number_of_packets += missed  
+                                buffer_lost_frames += missed
+
                 sampling_period = np.array(sampling_period)
                 time_resets = np.where(sampling_period < 0)[0] +1
                 time_resets_count = len(time_resets)
@@ -232,11 +253,11 @@ class DataAnalysis:
 
                 # Append data to results_table
                 results_table.append([
-                    session_id, device.port, missed_packet_percent, n_missed_packets, total_number_of_packets,
-                    duplicate_packet, time_string, exp_time_string, sampling_rate,
-                    breaks, loss_points, total_break_time, f"{mean_break_time} +- {std_break_time}",
+                    session_id, device.port, missed_packet_percent, n_missed_packets, total_number_of_packets, loss_points, total_loss_time, f"{mean_break_time} +- {std_break_time}",
+                    duplicate_packet, time_string, exp_time_string, 
+                    seq_rest,seq_loss, sampling_rate,
                     mean_sampling_period, std_sampling_period, max_sampling_period, min_sampling_period,
-                    buffer_full_event, f"{buffer_full_ts_mean} +- {buffer_full_ts_std}",
+                    buffer_full_event, buffer_lost_frames, np.sum(buffer_full_ts), f"{buffer_full_ts_mean} +- {buffer_full_ts_std}",
                     max_buffer_full_ts, min_buffer_full_ts, time_resets_count, max_time_resets_ts, min_time_resets_ts, mean_time_resets_ts, std_time_resets_ts
                 ])
                 print(f"SESSION: {session_id}; [Device = {device.port}] -> Missed packets = {n_missed_packets}")
@@ -253,9 +274,9 @@ data_analysis = DataAnalysis(db_url=db_path)
 results_table = data_analysis.calc_data_loss(log=False) 
 
 df = pd.DataFrame.from_dict(results_table) 
-header = ['session_id', 'device', 'data loss (%)', 'lost frames (#)', 'total frames (#)', 'duplicates (#)', 'obt. duration (h:m:s)', \
-          'exp. duration (h:m:s)', 'exp sampling_rate (Hz)', 'breaks (#)', 'loss events (#)', 'total loss time (s)', 'avg loss time (s)',\
-            'avg sampling period (s)', 'std sampling period (s)', 'max sampling period (s)', 'min sampling period (s)', "buffer full (#)", \
+header = ['session_id', 'device', 'data loss (%)', 'lost frames (#)', 'total frames (#)', 'loss events (#)', 'total loss time (s)', 'avg loss time (s)', 'duplicates (#)', 'obt. duration (h:m:s)', \
+          'exp. duration (h:m:s)', 'Seq Rest (#)', "Seq Loss (#)", 'exp sampling_rate (Hz)',\
+            'avg sampling period (s)', 'std sampling period (s)', 'max sampling period (s)', 'min sampling period (s)', "buffer full (#)", "buffer lost frames (#)", "total time buffer full (s)",\
             "buffer full avg (ts)", "buffer full max (ts)", "buffer full min (ts)", "time resets (#)", "time resets max (ts)", "time resets min (ts)", "time resets avg (ts)", "time resets std (ts)"]
 averages = df.mean(numeric_only=True)  # get the average of each numeric column
 std_devs = df.std(numeric_only=True)  # get the standard deviation of each numeric column
@@ -265,3 +286,8 @@ df.loc['Average'] = summary_row
 df.to_csv ('results/db_results.csv', index = True, header=header)
 
 pdb.set_trace()
+
+## QUESTIONS
+# 1. In which case the timestamp is reset?
+# 2. Why obtained duration > expected duration?
+# 3. all the frames are being lost due to buffer full, why?
