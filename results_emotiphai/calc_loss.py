@@ -80,6 +80,7 @@ class DataAnalysis:
         results_table: List = []
 
         for session_id in session_ids:
+
             print(f"Session id: {session_id}")
             devices: List[Device] = session.query(Device).filter(Device.session_id == session_id).all()
             session_obj = session.query(ModelSession).filter(ModelSession.id == session_id).one()
@@ -104,17 +105,21 @@ class DataAnalysis:
                 time_resets_ts = []
                 buffer_lost_frames: int = 0
                 seq_loss: int = 0
+                total_pack_seq: int = 0
+                seq_loss_ts: List = []
+                buffer_full_idx: List = []
 
                 # Gets all device frames and splits the output into sequence numbers and timestamps
                 statement = (
                     select(Frame.seq, Frame.timestamp)
                     .join(Device)
                     .where(Frame.device_id == device.id, Device.session_id == session_id)
-                    #.order_by(Frame.timestamp)
+                    .order_by(Frame.id)
                 )
                 frames: List[Frame] = session.execute(statement).all()
                 sequences, timestamps = zip(*frames)
                 total_number_of_packets = len(sequences)
+                total_pack_seq = len(sequences)
                 timestamps = np.array(timestamps) * 10**-6 # to seconds
 
                 copy_frames = frames[1:]
@@ -129,8 +134,8 @@ class DataAnalysis:
                     plt.title(device.port)
                     for index in idx_neg:
                         plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
-                    plt.plot(timestamps, ".")
-                    #plt.plot(sequences, ".")
+                    #plt.plot(timestamps, ".")
+                    plt.plot(sequences, ".")
                     plt.ylabel("timestamp (s)")
                     plt.show()
                 
@@ -145,8 +150,8 @@ class DataAnalysis:
                         n_frames_passed = 0
                     n_full_loops = 0 if n_frames_passed == 1 else n_frames_passed // max_seq_number 
 
-                    if log:
-                        print(f"INFO: index: {i} | diff: {diff} | n_full_loops: {n_full_loops} | missed_packets: {n_missed_packets} | frame: {copy_frames[i]}")
+                    #if log:
+                    #    print(f"INFO: index: {i} | diff: {diff} | n_full_loops: {n_full_loops} | missed_packets: {n_missed_packets} | frame: {copy_frames[i]}")
 
                     if diff != 1 and diff != -max_seq_number:  # If is not one, then we jumped more than one frame and so, we have an error
 
@@ -165,21 +170,31 @@ class DataAnalysis:
                                 if sampling_period[i] > 0:
                                     total_loss_time += timestamps[i+1] - timestamps[i] #missed / sampling_rate
                                     avg_break_time += [timestamps[i+1] - timestamps[i]]
+                                    seq_loss_ts += [timestamps[i+1] - timestamps[i]]
                                 else:
                                     total_loss_time += missed / sampling_rate
                                     avg_break_time += [missed / sampling_rate]
+                                    seq_loss_ts += [missed / sampling_rate]
                                 seq_loss += missed
+                                total_pack_seq += missed
 
                         elif diff > 1:  # We missed some packets but it did not go back to sequence 0
                             if log:
-                                print(f"ERROR: Missed some packets: {diff - 1}")
+                                print(f"ERROR: Missed some packets: {diff - 1}") 
                             missed = diff - 1
                             n_missed_packets += missed
                             loss_points += 1
-                            total_loss_time += diff / sampling_rate
-                            avg_break_time += [ diff / sampling_rate]
+                            if sampling_period[i] > 0:
+                                total_loss_time += timestamps[i+1] - timestamps[i] 
+                                avg_break_time += [timestamps[i+1] - timestamps[i]]
+                                seq_loss_ts += [timestamps[i+1] - timestamps[i]]
+                            else:
+                                total_loss_time += missed / sampling_rate
+                                avg_break_time += [ missed / sampling_rate]
+                                seq_loss_ts += [missed / sampling_rate]
                             total_number_of_packets += missed
                             seq_loss += missed
+                            total_pack_seq += missed
                         
                         elif diff < 0:  # We came back to sequence 0 (i.e: (15 - 12) + (7 - 0))
                             if sequences[i] == 0 and sequences[i-1] != max_seq_number:  # break
@@ -194,6 +209,8 @@ class DataAnalysis:
                                 avg_break_time += [ missed / sampling_rate]
                                 total_number_of_packets += missed 
                                 seq_loss += missed
+                                total_pack_seq += missed
+                                seq_loss_ts += [missed / sampling_rate]
                     else:
                         if sampling_period[i] > 1.5*(1/sampling_rate) and n_full_loops == 0: # there was loss without change in paket number
                             if diff == 1:
@@ -206,6 +223,17 @@ class DataAnalysis:
                                 avg_break_time += [ missed / sampling_rate]
                                 total_number_of_packets += missed  
                                 buffer_lost_frames += missed
+                                buffer_full_idx += [i+1]
+                if log:
+                    if len(buffer_full_idx) > 0:
+                        plt.figure()
+                        plt.title(str(device.port) + " buffer full")
+                        for index in buffer_full_idx:
+                            plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
+                        #plt.plot(timestamps, ".")
+                        plt.plot(timestamps, ".")
+                        plt.ylabel("timestamps")
+                        plt.show()
 
                 sampling_period = np.array(sampling_period)
                 time_resets = np.where(sampling_period < 0)[0] +1
@@ -223,13 +251,13 @@ class DataAnalysis:
                     assert np.unique(differences).shape[0] == 1 or np.unique(differences).shape[0] == 2
                 # Perform calculations
                 missed_packet_percent = round(n_missed_packets / total_number_of_packets * 100, 2)
+                seq_loss_perc = round(seq_loss / total_pack_seq * 100, 2)
                 duplicate_packet = n_duplicates 
 
                 # Format times as strings
                 time_string = f"{hours}:{minutes}:{seconds}"
                 exp_time_string = f"{exp_hours}:{exp_minutes}:{exp_seconds}"
 
-                # Calculate NumPy statistics
                 mean_break_time = round(np.mean(avg_break_time), 5)
                 std_break_time = round(np.std(avg_break_time), 5)
                 mean_sampling_period = round(np.mean(sampling_period), 5)
@@ -237,30 +265,33 @@ class DataAnalysis:
                 max_sampling_period = round(np.max(sampling_period), 5)
                 min_sampling_period = round(np.min(sampling_period), 5)
 
-                # Ensure buffer_full_ts is an array-like structure to compute mean and std
-                if not isinstance(buffer_full_ts, (list, np.ndarray)):
-                    raise TypeError("buffer_full_ts must be a list or numpy array")
+                if len(buffer_full_ts) > 0:
+                    buffer_full_ts_mean = round(np.mean(buffer_full_ts), 5)
+                    buffer_full_ts_std = round(np.std(buffer_full_ts), 5)
+                    max_buffer_full_ts = round(np.max(buffer_full_ts), 5)
+                    min_buffer_full_ts = round(np.min(buffer_full_ts), 5)
+                else:
+                    buffer_full_ts_mean, buffer_full_ts_std, max_buffer_full_ts, min_buffer_full_ts = 0,0,0,0
+                if len(time_resets_ts) > 0:
+                    max_time_resets_ts = round(np.max(time_resets_ts), 5)
+                    min_time_resets_ts = round(np.min(time_resets_ts), 5)
+                    mean_time_resets_ts = round(np.mean(time_resets_ts), 5)
+                    std_time_resets_ts = round(np.std(time_resets_ts), 5)
+                else:
+                    max_time_resets_ts, min_time_resets_ts, mean_time_resets_ts, std_time_resets_ts = 0,0,0,0
 
-                buffer_full_ts_mean = round(np.mean(buffer_full_ts), 5)
-                buffer_full_ts_std = round(np.std(buffer_full_ts), 5)
-                max_buffer_full_ts = round(np.max(buffer_full_ts), 5)
-                min_buffer_full_ts = round(np.min(buffer_full_ts), 5)
-
-                max_time_resets_ts = round(np.max(time_resets_ts), 5)
-                min_time_resets_ts = round(np.min(time_resets_ts), 5)
-                mean_time_resets_ts = round(np.mean(time_resets_ts), 5)
-                std_time_resets_ts = round(np.std(time_resets_ts), 5)
+                seq_loss_time = round(np.sum(seq_loss_ts), 5)
 
                 # Append data to results_table
                 results_table.append([
                     session_id, device.port, missed_packet_percent, n_missed_packets, total_number_of_packets, loss_points, total_loss_time, f"{mean_break_time} +- {std_break_time}",
                     duplicate_packet, time_string, exp_time_string, 
-                    seq_rest,seq_loss, sampling_rate,
+                    seq_rest,seq_loss, seq_loss_perc, seq_loss_time, sampling_rate,
                     mean_sampling_period, std_sampling_period, max_sampling_period, min_sampling_period,
                     buffer_full_event, buffer_lost_frames, np.sum(buffer_full_ts), f"{buffer_full_ts_mean} +- {buffer_full_ts_std}",
                     max_buffer_full_ts, min_buffer_full_ts, time_resets_count, max_time_resets_ts, min_time_resets_ts, mean_time_resets_ts, std_time_resets_ts
                 ])
-                print(f"SESSION: {session_id}; [Device = {device.port}] -> Missed packets = {n_missed_packets}")
+                print(f"SESSION: {session_id}; [Device = {device.port}] -> Missed packets = {n_missed_packets} (#) | Data Loss {missed_packet_percent} (%)")
 
             print("%%%%% SESSION END %%%%% \n")
         session.close()
@@ -275,7 +306,7 @@ results_table = data_analysis.calc_data_loss(log=False)
 
 df = pd.DataFrame.from_dict(results_table) 
 header = ['session_id', 'device', 'data loss (%)', 'lost frames (#)', 'total frames (#)', 'loss events (#)', 'total loss time (s)', 'avg loss time (s)', 'duplicates (#)', 'obt. duration (h:m:s)', \
-          'exp. duration (h:m:s)', 'Seq Rest (#)', "Seq Loss (#)", 'exp sampling_rate (Hz)',\
+          'exp. duration (h:m:s)', 'Seq Rest (#)', "Seq Loss (#)", "Seq Loss (%)", "Total Seq Loss (s)", 'exp sampling_rate (Hz)',\
             'avg sampling period (s)', 'std sampling period (s)', 'max sampling period (s)', 'min sampling period (s)', "buffer full (#)", "buffer lost frames (#)", "total time buffer full (s)",\
             "buffer full avg (ts)", "buffer full max (ts)", "buffer full min (ts)", "time resets (#)", "time resets max (ts)", "time resets min (ts)", "time resets avg (ts)", "time resets std (ts)"]
 averages = df.mean(numeric_only=True)  # get the average of each numeric column
@@ -291,3 +322,5 @@ pdb.set_trace()
 # 1. In which case the timestamp is reset?
 # 2. Why obtained duration > expected duration?
 # 3. all the frames are being lost due to buffer full, why?
+# 4. Parece que envia o dobro dos dados, envia o ts no tempo errado, mas mantem seq number
+# 5. Buffer full is observed when timestamp goes back in time
