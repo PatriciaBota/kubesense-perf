@@ -149,7 +149,7 @@ class DataAnalysis:
 
                     # Counts number of frames based on the elapsed time and counts number of possible full loops
                     if sampling_period[i] > 0:
-                        n_frames_passed = round((timestamps[i + 1] - timestamps[i]) * sampling_rate)
+                        n_frames_passed = round(timestamps[i + 1] - timestamps[i]) * sampling_rate
                     else:
                         n_frames_passed = 0
                     n_full_loops = 0 if n_frames_passed == 1 else n_frames_passed // max_seq_number 
@@ -223,11 +223,7 @@ class DataAnalysis:
                             if diff == 1:
                                 buffer_full_event += 1 # max # min, não recolhe dados por ter buffer cheio
                                 buffer_full_ts += [sampling_period[i]] # max # min, não recolhe dados por ter buffer cheio
-                                if n_full_loops == 0:
-                                    missed = round((timestamps[i + 1] - timestamps[i])) * sampling_rate
-                                else:
-                                    pdb.set_trace()
-                                    missed = max_seq_number * n_full_loops + (max_seq_number - sequences[i]) + (sequences[i+1] - 0)   # We lost an entire set of frames
+                                missed = round((timestamps[i + 1] - timestamps[i])) * sampling_rate
                                 n_missed_packets += missed
                                 loss_points += 1
                                 total_loss_time += missed / sampling_rate
