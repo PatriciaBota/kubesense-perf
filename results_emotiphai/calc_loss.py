@@ -167,7 +167,7 @@ class DataAnalysis:
                                 if log:
                                     print(f"ERROR: got full loop and added: {n_full_loops * max_seq_number}")
                                 pdb.set_trace()
-                                missed = max_seq_number * n_full_loops + (max_seq_number - sequences[i - 1]) + (sequences[i] - 0)   # We lost an entire set of frames
+                                missed = max_seq_number * n_full_loops + (max_seq_number - sequences[i]) + (sequences[i+1] - 0)   # We lost an entire set of frames
                                 n_missed_packets += missed
                                 total_number_of_packets += missed
                                 loss_points += 1
@@ -203,12 +203,12 @@ class DataAnalysis:
                             seq_loss_idx += [i+1]
                         
                         elif diff < 0:  # We came back to sequence 0 (i.e: (15 - 12) + (7 - 0))
-                            if sequences[i] == 0 and sequences[i-1] != max_seq_number:  # break
+                            if sequences[i+1] == 0 and sequences[i] != max_seq_number:  # break
                                 seq_rest += 1 # break with no data loss, reinicia seq number
                             else:
                                 if log:
-                                    print(f"ERROR: Missed packets in break: {(max_seq_number - sequences[i - 1]) + (sequences[i] - 0)}")
-                                missed = (max_seq_number - sequences[i - 1]) + (sequences[i] - 0)
+                                    print(f"ERROR: Missed packets in break: {(max_seq_number - sequences[i]) + (sequences[i+1] - 0)}")
+                                missed = (max_seq_number - sequences[i]) + (sequences[i+1] - 0)
                                 n_missed_packets += missed
                                 loss_points += 1
                                 total_loss_time += missed / sampling_rate
@@ -219,11 +219,15 @@ class DataAnalysis:
                                 seq_loss_ts += [missed / sampling_rate]
                                 seq_loss_idx += [i+1]
                     else:
-                        if sampling_period[i] > 1.5*(1/sampling_rate) and n_full_loops == 0: # there was loss without change in paket number
+                        if sampling_period[i] > 1.5*(1/sampling_rate) : # there was loss without change in paket number
                             if diff == 1:
                                 buffer_full_event += 1 # max # min, não recolhe dados por ter buffer cheio
                                 buffer_full_ts += [sampling_period[i]] # max # min, não recolhe dados por ter buffer cheio
-                                missed = round((timestamps[i + 1] - timestamps[i]) * sampling_rate)
+                                if n_full_loops == 0:
+                                    missed = round((timestamps[i + 1] - timestamps[i])) * sampling_rate
+                                else:
+                                    pdb.set_trace()
+                                    missed = max_seq_number * n_full_loops + (max_seq_number - sequences[i]) + (sequences[i+1] - 0)   # We lost an entire set of frames
                                 n_missed_packets += missed
                                 loss_points += 1
                                 total_loss_time += missed / sampling_rate
@@ -288,16 +292,17 @@ class DataAnalysis:
                     max_time_resets_ts, min_time_resets_ts, mean_time_resets_ts, std_time_resets_ts = 0,0,0,0
 
                 seq_loss_time = round(np.sum(seq_loss_ts), 5)
-                if len(seq_loss_idx) > 0:
-                    plt.figure()
-                    plt.title(str(device.port) + " buffer full")
-                    for index in seq_loss_idx:
-                        plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
-                    #plt.plot(timestamps, ".")
-                    plt.plot(timestamps, ".")
-                    plt.ylabel("sequences")
-                    plt.show()
-                    plt.close()
+                if log:
+                    if len(seq_loss_idx) > 0:
+                        plt.figure()
+                        plt.title(str(device.port) + " buffer full")
+                        for index in seq_loss_idx:
+                            plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
+                        #plt.plot(timestamps, ".")
+                        plt.plot(timestamps, ".")
+                        plt.ylabel("sequences")
+                        plt.show()
+                        plt.close()
 
                 # Append data to results_table
                 results_table.append([
@@ -341,7 +346,8 @@ pdb.set_trace()
 # 3. all the frames are being lost due to buffer full, why?
 # 4. Parece que envia o dobro dos dados, envia o ts no tempo errado, mas mantem seq number
 # 5. Buffer full is observed when timestamp goes back in time
-
+# 6. led doesn't stop high frequency
+# 7. timestamps are side by side why
 
 #TODO:
 # 1. Increase timeout between saving, num works
