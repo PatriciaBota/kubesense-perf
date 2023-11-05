@@ -291,12 +291,12 @@ class DataAnalysis:
                 if log:
                     if len(seq_loss_idx) > 0:
                         plt.figure()
-                        plt.title(str(device.port) + " buffer full")
+                        plt.title(str(device.port) + " seq_loss_idx")
                         for index in seq_loss_idx:
                             plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
                         #plt.plot(timestamps, ".")
                         plt.plot(timestamps, ".")
-                        plt.ylabel("sequences")
+                        plt.ylabel("timestamps")
                         plt.show()
                         plt.close()
 
@@ -320,7 +320,7 @@ db_path = "sqlite:///data/db.sqlite"  # This is the correct format for an SQLite
 data_analysis = DataAnalysis(db_url=db_path)
 
 # Now, call the calc_data_loss method. You can pass the session_id and log flag if needed.
-results_table = data_analysis.calc_data_loss(log=False) 
+results_table = data_analysis.calc_data_loss(log=True) 
 
 df = pd.DataFrame.from_dict(results_table) 
 header = ['session_id', 'device', 'data loss (%)', 'lost frames (#)', 'total frames (#)', 'loss events (#)', 'total loss time (s)', 'avg loss time (s)', 'duplicates (#)', 'obt. duration (h:m:s)', \
@@ -344,6 +344,7 @@ pdb.set_trace()
 # 5. Buffer full is observed when timestamp goes back in time
 # 6. led doesn't stop high frequency
 # 7. timestamps are side by side why
+#8. continue blinking after turn off
 
 #TODO:
 # 1. Increase timeout between saving, num works
