@@ -81,6 +81,7 @@ class DataAnalysis:
 
         for session_id in session_ids:
 
+
             print(f"Session id: {session_id}")
             devices: List[Device] = session.query(Device).filter(Device.session_id == session_id).all()
             session_obj = session.query(ModelSession).filter(ModelSession.id == session_id).one()
@@ -115,33 +116,36 @@ class DataAnalysis:
 
                 # Gets all device frames and splits the output into sequence numbers and timestamps
                 statement = (
-                    select(Frame.seq, Frame.timestamp)
+                    select(Frame.seq, Frame.timestamp, Frame.ai_1, Frame.ai_3)
                     .join(Device)
                     .where(Frame.device_id == device.id, Device.session_id == session_id)
                     .order_by(Frame.id)
                 )
                 frames: List[Frame] = session.execute(statement).all()
-                sequences, timestamps = zip(*frames)
+                sequences, timestamps, eda, ppg = zip(*frames)
                 total_number_of_packets = len(sequences)
                 total_pack_seq = len(sequences)
                 timestamps = np.array(timestamps) * 10**-6 # to seconds
-
-                copy_frames = frames[1:]
+                
+                plt.figure()
+                plt.title(str(device.port))
+                plt.plot(ppg, ".")
+                plt.show()
 
                 # Applies numpy diff to sequence numbers to check if there are any missing packages
                 differences: List[int] = np.diff(sequences).tolist()
                 sampling_period: List[int] = np.diff(timestamps).tolist()
                 idx_neg = np.where(np.array(sampling_period) < 0)[0]
 
-                if log:
-                    plt.figure()
-                    plt.title(device.port)
-                    for index in idx_neg:
-                        plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
-                    #plt.plot(timestamps, ".")
-                    plt.plot(sequences, ".")
-                    plt.ylabel("timestamp (s)")
-                    plt.show()
+                #if log:
+                #    plt.figure()
+                #    plt.title(device.port)
+                #    for index in idx_neg:
+                #        plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
+                #    #plt.plot(timestamps, ".")
+                #    plt.plot(sequences, ".")
+                #    plt.ylabel("timestamp (s)")
+                #    plt.show()
                 
                 # Goes over all differences and corresponding timestamps and counts data loss
                 print(f"unique sequences: {len(np.unique(sequences))}, total size", {len(sequences)})
@@ -149,7 +153,7 @@ class DataAnalysis:
 
                     # Counts number of frames based on the elapsed time and counts number of possible full loops
                     if sampling_period[i] > 0:
-                        n_frames_passed = round(timestamps[i + 1] - timestamps[i]) * sampling_rate
+                        n_frames_passed = math.floor(timestamps[i + 1] - timestamps[i]) * sampling_rate
                     else:
                         n_frames_passed = 0
                     n_full_loops = 0 if n_frames_passed == 1 else n_frames_passed // max_seq_number 
@@ -202,10 +206,10 @@ class DataAnalysis:
                             total_pack_seq += missed
                             seq_loss_idx += [i+1]
                         
-                        elif diff < 0:  # We came back to sequence 0 (i.e: (15 - 12) + (7 - 0))
-                            if sequences[i+1] == 0 and sequences[i] != max_seq_number:  # break
+                        elif diff < 0:  
+                            if sequences[i+1] == 0 and sequences[i] != max_seq_number:  # device turn off, don't know for how long
                                 seq_rest += 1 # break with no data loss, reinicia seq number
-                            else:
+                            else:  # We came back to sequence 0 (i.e: (15 - 12) + (7 - 0))
                                 if log:
                                     print(f"ERROR: Missed packets in break: {(max_seq_number - sequences[i]) + (sequences[i+1] - 0)}")
                                 missed = (max_seq_number - sequences[i]) + (sequences[i+1] - 0)
@@ -219,15 +223,16 @@ class DataAnalysis:
                                 seq_loss_ts += [missed / sampling_rate]
                                 seq_loss_idx += [i+1]
                     else:
-                        if sampling_period[i] > 1.5*(1/sampling_rate) : # there was loss without change in paket number
+                        if sampling_period[i] > 2*(1/sampling_rate): # there was loss without change in paket number
+                            # can not send or receive data at high speed enough, buffer becomes full -> aquisition stops -> data loss not in transmission but in aquisition
                             if diff == 1:
                                 buffer_full_event += 1 # max # min, não recolhe dados por ter buffer cheio
                                 buffer_full_ts += [sampling_period[i]] # max # min, não recolhe dados por ter buffer cheio
-                                missed = round((timestamps[i + 1] - timestamps[i])) * sampling_rate
+                                missed = math.floor((timestamps[i + 1] - timestamps[i])) * sampling_rate
                                 n_missed_packets += missed
                                 loss_points += 1
-                                total_loss_time += missed / sampling_rate
-                                avg_break_time += [ missed / sampling_rate]
+                                total_loss_time += timestamps[i + 1] - timestamps[i]
+                                avg_break_time += [timestamps[i + 1] - timestamps[i]]
                                 total_number_of_packets += missed  
                                 buffer_lost_frames += missed
                                 buffer_full_idx += [i+1]
@@ -288,17 +293,17 @@ class DataAnalysis:
                     max_time_resets_ts, min_time_resets_ts, mean_time_resets_ts, std_time_resets_ts = 0,0,0,0
 
                 seq_loss_time = round(np.sum(seq_loss_ts), 5)
-                if log:
-                    if len(seq_loss_idx) > 0:
-                        plt.figure()
-                        plt.title(str(device.port) + " seq_loss_idx")
-                        for index in seq_loss_idx:
-                            plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
-                        #plt.plot(timestamps, ".")
-                        plt.plot(timestamps, ".")
-                        plt.ylabel("timestamps")
-                        plt.show()
-                        plt.close()
+                #if log:
+                #    if len(seq_loss_idx) > 0:
+                #        plt.figure()
+                #        plt.title(str(device.port) + " seq_loss_idx")
+                #        for index in seq_loss_idx:
+                #            plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
+                #        #plt.plot(timestamps, ".")
+                #        plt.plot(timestamps, ".")
+                #        plt.ylabel("timestamps")
+                #        plt.show()
+                #        plt.close()
 
                 # Append data to results_table
                 results_table.append([
@@ -320,7 +325,7 @@ db_path = "sqlite:///data/db.sqlite"  # This is the correct format for an SQLite
 data_analysis = DataAnalysis(db_url=db_path)
 
 # Now, call the calc_data_loss method. You can pass the session_id and log flag if needed.
-results_table = data_analysis.calc_data_loss(log=True) 
+results_table = data_analysis.calc_data_loss(log=False) 
 
 df = pd.DataFrame.from_dict(results_table) 
 header = ['session_id', 'device', 'data loss (%)', 'lost frames (#)', 'total frames (#)', 'loss events (#)', 'total loss time (s)', 'avg loss time (s)', 'duplicates (#)', 'obt. duration (h:m:s)', \
