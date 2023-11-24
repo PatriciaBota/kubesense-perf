@@ -76,23 +76,15 @@ class DataAnalysis:
         max_seq_number = 4095
         statement = session.query(ModelSession.id).distinct().all()
         session_ids = [row[0] for row in statement]
-
         results_table: List = []
 
         for session_id in session_ids:
-
-
             print(f"Session id: {session_id}")
             devices: List[Device] = session.query(Device).filter(Device.session_id == session_id).all()
             session_obj = session.query(ModelSession).filter(ModelSession.id == session_id).one()
 
             sampling_rate = session_obj.sampling_rate
-            try:
-                start_time = session_obj.start_time
-                end_time = session_obj.end_time
-                exp_duration = end_time - start_time
-            except Exception as e:
-                exp_duration = 0
+
             print(f"sampling_rate {sampling_rate}")
 
             for device in devices:
@@ -113,13 +105,21 @@ class DataAnalysis:
                 seq_loss_ts: List = []
                 buffer_full_idx: List = []
                 seq_loss_idx: List = []
+                
+                try:
+                    start_time = device.start_time
+                    end_time = session_obj.end_time
+                    exp_duration = end_time - start_time
+                except Exception as e:
+                    print(e)
+                    exp_duration = 0
 
                 # Gets all device frames and splits the output into sequence numbers and timestamps
                 statement = (
                     select(Frame.seq, Frame.timestamp, Frame.ai_1, Frame.ai_3)
                     .join(Device)
                     .where(Frame.device_id == device.id, Device.session_id == session_id)
-                    .order_by(Frame.id)
+                    .order_by(Frame.timestamp)
                 )
                 frames: List[Frame] = session.execute(statement).all()
                 sequences, timestamps, eda, ppg = zip(*frames)
@@ -127,25 +127,26 @@ class DataAnalysis:
                 total_pack_seq = len(sequences)
                 timestamps = np.array(timestamps) * 10**-6 # to seconds
                 
-                plt.figure()
-                plt.title(str(device.port))
-                plt.plot(ppg, ".")
-                plt.show()
-
                 # Applies numpy diff to sequence numbers to check if there are any missing packages
                 differences: List[int] = np.diff(sequences).tolist()
                 sampling_period: List[int] = np.diff(timestamps).tolist()
                 idx_neg = np.where(np.array(sampling_period) < 0)[0]
 
-                #if log:
-                #    plt.figure()
-                #    plt.title(device.port)
-                #    for index in idx_neg:
-                #        plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
-                #    #plt.plot(timestamps, ".")
-                #    plt.plot(sequences, ".")
-                #    plt.ylabel("timestamp (s)")
-                #    plt.show()
+                #plt.figure()
+                #plt.title(str(device.port) + "neg sp")
+                #plt.plot(eda, ".")
+                #plt.show()
+
+                if log:
+                    if len(idx_neg) > 0:
+                        plt.figure()
+                        plt.title(str(device.port) + "neg sp")
+                        for index in idx_neg:
+                            plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
+                        #plt.plot(timestamps, ".")
+                        plt.plot(timestamps, ".")
+                        plt.ylabel("timestamp (s)")
+                        plt.show()
                 
                 # Goes over all differences and corresponding timestamps and counts data loss
                 print(f"unique sequences: {len(np.unique(sequences))}, total size", {len(sequences)})
@@ -153,7 +154,7 @@ class DataAnalysis:
 
                     # Counts number of frames based on the elapsed time and counts number of possible full loops
                     if sampling_period[i] > 0:
-                        n_frames_passed = math.floor(timestamps[i + 1] - timestamps[i]) * sampling_rate
+                        n_frames_passed = math.floor((timestamps[i + 1] - timestamps[i]) * sampling_rate)
                     else:
                         n_frames_passed = 0
                     n_full_loops = 0 if n_frames_passed == 1 else n_frames_passed // max_seq_number 
@@ -170,7 +171,6 @@ class DataAnalysis:
                             elif n_full_loops > 0:
                                 if log:
                                     print(f"ERROR: got full loop and added: {n_full_loops * max_seq_number}")
-                                pdb.set_trace()
                                 missed = max_seq_number * n_full_loops + (max_seq_number - sequences[i]) + (sequences[i+1] - 0)   # We lost an entire set of frames
                                 n_missed_packets += missed
                                 total_number_of_packets += missed
@@ -180,7 +180,7 @@ class DataAnalysis:
                                     avg_break_time += [timestamps[i+1] - timestamps[i]]
                                     seq_loss_ts += [timestamps[i+1] - timestamps[i]]
                                 else:
-                                    total_loss_time += missed / sampling_rate
+                                    total_loss_time += missed / sampling_rate # 1 4: 2, 3 -> 0.01*2
                                     avg_break_time += [missed / sampling_rate]
                                     seq_loss_ts += [missed / sampling_rate]
                                 seq_loss += missed
@@ -227,8 +227,8 @@ class DataAnalysis:
                             # can not send or receive data at high speed enough, buffer becomes full -> aquisition stops -> data loss not in transmission but in aquisition
                             if diff == 1:
                                 buffer_full_event += 1 # max # min, não recolhe dados por ter buffer cheio
-                                buffer_full_ts += [sampling_period[i]] # max # min, não recolhe dados por ter buffer cheio
-                                missed = math.floor((timestamps[i + 1] - timestamps[i])) * sampling_rate
+                                buffer_full_ts += [timestamps[i+1] - timestamps[i]] # max # min, não recolhe dados por ter buffer cheio
+                                missed = math.floor((timestamps[i + 1] - timestamps[i]) * sampling_rate)
                                 n_missed_packets += missed
                                 loss_points += 1
                                 total_loss_time += timestamps[i + 1] - timestamps[i]
@@ -293,17 +293,17 @@ class DataAnalysis:
                     max_time_resets_ts, min_time_resets_ts, mean_time_resets_ts, std_time_resets_ts = 0,0,0,0
 
                 seq_loss_time = round(np.sum(seq_loss_ts), 5)
-                #if log:
-                #    if len(seq_loss_idx) > 0:
-                #        plt.figure()
-                #        plt.title(str(device.port) + " seq_loss_idx")
-                #        for index in seq_loss_idx:
-                #            plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
-                #        #plt.plot(timestamps, ".")
-                #        plt.plot(timestamps, ".")
-                #        plt.ylabel("timestamps")
-                #        plt.show()
-                #        plt.close()
+                if log:
+                    if len(seq_loss_idx) > 0:
+                        plt.figure()
+                        plt.title(str(device.port) + " seq_loss_idx")
+                        for index in seq_loss_idx:
+                            plt.axvline(x=index, color='r', linestyle='--')  # Plots a vertical line at each index
+                        #plt.plot(timestamps, ".")
+                        plt.plot(timestamps, ".")
+                        plt.ylabel("timestamps")
+                        plt.show()
+                        plt.close()
 
                 # Append data to results_table
                 results_table.append([

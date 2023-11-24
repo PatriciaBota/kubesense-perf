@@ -42,11 +42,10 @@ class Base:
     )
     sessions = self.db.execute(statements).all()
     sessions = [f"{s[0].id} - {s[0].movie[:-4]}" for s in sessions]
-
     
     return sessions
   
-  def get_device_from_port(self, session_id: int, device_port: int) -> Device:
+  def get_device_from_port(self, session_id: int, device_port: str) -> Device:
     """
     Description:
       * Fetches a device for a given session_id and device_port.
@@ -59,7 +58,7 @@ class Base:
       * device (Device): The device for the given session_id and device_port.
     """
     statements = (
-      select(Device).where(Device.session_id == session_id and Device.port == device_port)
+      select(Device).where((Device.session_id == session_id) & (Device.port == device_port))
     )
     device = self.db.execute(statements).all()
     device = device[0][0]
@@ -83,7 +82,7 @@ class Base:
     return session.sampling_rate
   
   
-  def get_eda(self, session_id: int, device_port: int) -> List[int]:
+  def get_eda(self, session_id: int, device_port: str) -> List[int]:
     """
     Description:
       * Fetches the eda for a given session_id and device_port.
@@ -99,8 +98,7 @@ class Base:
     statements = (
       select(Frame).where((Frame.session_id == session_id) & (Frame.device_id == device.id))
     )
-    print("device", device.id)
-    print("session_id", session_id)
     frames = self.db.execute(statements).all()
     eda = [f[0].__dict__[config.EDA_CHANNEL] for f in frames]
-    return eda
+    x = [f[0].__dict__[config.TIME_CHANNEL] for f in frames]
+    return eda, x

@@ -45,7 +45,8 @@ class Device(Base):
   __tablename__ = "Device"
   id = Column(Integer, primary_key=True)
   session_id = Column(Integer, ForeignKey("Session.id"))
-  port = Column(Integer, index=True)
+  port = Column(String, index=True)
+  start_time = Column(Float)
   frames = relationship("Frame", backref=backref("Frame"))
   annotations = relationship("Annotation", backref=backref("AnnotationDevice"))
 
