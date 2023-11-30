@@ -132,10 +132,10 @@ class DataAnalysis:
                 sampling_period: List[int] = np.diff(timestamps).tolist()
                 idx_neg = np.where(np.array(sampling_period) < 0)[0]
 
-                #plt.figure()
-                #plt.title(str(device.port) + "neg sp")
-                #plt.plot(eda, ".")
-                #plt.show()
+                plt.figure()
+                plt.title(str(device.port) + "neg sp")
+                plt.plot(eda, ".")
+                plt.show()
 
                 if log:
                     if len(idx_neg) > 0:
@@ -254,7 +254,7 @@ class DataAnalysis:
                 
                 sampling_period = [num for num in sampling_period if num >= 0]
 
-                collection_time = self.calculate_data_collection_time(sampling_rate, total_number_of_packets)
+                collection_time = self.calculate_data_collection_time(sampling_rate, len(sequences))
                 hours, minutes, seconds = self.seconds_to_hours_minutes_seconds(collection_time)
                 exp_hours, exp_minutes, exp_seconds = self.seconds_to_hours_minutes_seconds(exp_duration)
                 if len(avg_break_time) == 0:

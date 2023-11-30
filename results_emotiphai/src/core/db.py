@@ -1,9 +1,9 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
+from os import getenv
 
-from src.core.config import config
-
-engine = create_engine(config.DATABASE_URL, pool_pre_ping=True)
+DATABASE_URL: str = f"sqlite://{getenv('DATABASE_PATH', '/data/db.sqlite')}"
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 session_not_thread_safe = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
