@@ -204,9 +204,10 @@ class DataAnalysis:
                             seq_loss_idx += [i+1]
                         
                         elif diff < 0:  
-                            if sequences[i+1] == 0 and sequences[i] != max_seq_number:  # device turn off, don't know for how long
+                            if sequences[i+1] == 0 and sequences[i] == max_seq_number:  # device turn off, don't know for how long
                                 seq_rest += 1 # break with no data loss, reinicia seq number
                             else:  # We came back to sequence 0 (i.e: (15 - 12) + (7 - 0))
+                                seq_rest += 1 # break with no data loss, reinicia seq number
                                 if log:
                                     print(f"ERROR: Missed packets in break: {(max_seq_number - sequences[i]) + (sequences[i+1] - 0)}")
                                 missed = (max_seq_number - sequences[i]) + (sequences[i+1] - 0)
