@@ -12,6 +12,7 @@ import pandas as pd
 from src.sqlalchemy.models import Session as ModelSession, Device, Frame
 from sqlalchemy import create_engine
 
+import pdb
 
 class DataAnalysis:
 
@@ -132,10 +133,6 @@ class DataAnalysis:
                 sampling_period: List[int] = np.diff(timestamps).tolist()
                 idx_neg = np.where(np.array(sampling_period) < 0)[0]
 
-                plt.figure()
-                plt.title(str(device.port) + "neg sp")
-                plt.plot(eda, ".")
-                plt.show()
 
                 if log:
                     if len(idx_neg) > 0:
@@ -149,7 +146,7 @@ class DataAnalysis:
                         plt.show()
                 
                 # Goes over all differences and corresponding timestamps and counts data loss
-                print(f"unique sequences: {len(np.unique(sequences))}, total size", {len(sequences)})
+                #print(f"unique sequences: {len(np.unique(sequences))}, total size", {len(sequences)})
                 for i, diff in enumerate(differences):
 
                     # Counts number of frames based on the elapsed time and counts number of possible full loops
@@ -260,7 +257,7 @@ class DataAnalysis:
                 if len(avg_break_time) == 0:
                     avg_break_time = [0]
                 if n_missed_packets == 0:
-                    assert np.unique(differences).shape[0] == 1 or np.unique(differences).shape[0] == 2
+                    assert (np.unique(differences).shape[0] == 1 or np.unique(differences).shape[0] == 2) or seq_rest != 0# allow for 1 or 2**12-1
                 # Perform calculations
                 missed_packet_percent = round(n_missed_packets / total_number_of_packets * 100, 2)
                 seq_loss_perc = round(seq_loss / total_pack_seq * 100, 2)
